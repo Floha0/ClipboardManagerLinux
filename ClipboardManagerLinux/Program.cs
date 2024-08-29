@@ -1,75 +1,94 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Windows.Forms;
+using Gtk;
 
 namespace ClipboardManager
 {
     internal class Program
     {
-        [STAThread]
+        private static Queue<string> copiedTexts = new Queue<string>();
+        private static readonly int maxTextCount = 10; // Saklanacak maksimum metin sayısı
+
+        private static bool newCopy = false;
+        private static bool containsAtStart = false;
+
         public static void Main(string[] args)
         {
-            List<string> copiedTexts = new List<string>();
-            bool newCopy = false;
-            bool containsAtStart = false;
-            
-            Console.WriteLine("Clipboard Manager Started!");
-            
-            
-            // Clipboard.Clear();
+            Application.Init(); // Start the GTK App
 
-            if (Clipboard.ContainsText())
+            Clipboard clipboard = Clipboard.Get(Gdk.Selection.Clipboard);
+
+            // Check the clipboard on startup
+            if (!string.IsNullOrEmpty(clipboard.WaitForText()))
             {
                 containsAtStart = true;
-                copiedTexts.Add(Clipboard.GetText());
+                copiedTexts.Enqueue(clipboard.WaitForText());
             }
             else
             {
                 string tempText = "Empty Clipboard!";
-                
-                copiedTexts.Add(tempText);
+                copiedTexts.Enqueue(tempText);
             }
-            
-            
-            while (true)
+
+            Console.WriteLine("Clipboard Manager Started!");
+
+            // Controlling Clipboard in background continuously
+            Thread clipboardMonitorThread = new Thread(() =>
             {
-                if (Clipboard.ContainsText())
+                while (true)
                 {
-                    if (!containsAtStart)
+                    string currentText = clipboard.WaitForText();
+
+                    if (!string.IsNullOrEmpty(currentText))
                     {
-                        newCopy = true;
-                    }
-                    else
-                    {
-                        if (Clipboard.GetText() != copiedTexts[copiedTexts.Count - 1])
+                        if (!containsAtStart)
                         {
                             newCopy = true;
                         }
+                        else
+                        {
+                            if (currentText != copiedTexts.Last())
+                            {
+                                newCopy = true;
+                            }
+                        }
                     }
-                }
 
-                if (newCopy)
-                {
-                    if (!containsAtStart)
+                    if (newCopy)
                     {
-                        copiedTexts.Clear();
-                        containsAtStart = true;
-                    }
-                    
-                    copiedTexts.Add(Clipboard.GetText());
+                        if (!containsAtStart)
+                        {
+                            copiedTexts.Clear();
+                            containsAtStart = true;
+                        }
+                        
+                        if (copiedTexts.Count >= maxTextCount)
+                        {
+                            copiedTexts.Dequeue(); // Dequeue the oldest text
+                        }
+                        
+                        copiedTexts.Enqueue(currentText);
 
-                    Console.Clear();
-                    for (int i = 0; i < copiedTexts.Count; i++)
-                    {
-                        Console.WriteLine((i + 1) + ": " + copiedTexts[i]);
+                        Console.Clear();
+                        int index = 1;
+                        foreach (var text in copiedTexts)
+                        {
+                            Console.WriteLine($"{index++}: {text}");
+                        }
+
+                        newCopy = false;
                     }
 
-                    newCopy = false;
+                    Thread.Sleep(100);
                 }
+            });
 
-                Thread.Sleep(100);
-            }
+            clipboardMonitorThread.IsBackground = true;
+            clipboardMonitorThread.Start();
+
+            // Run the GTK App
+            Application.Run();
         }
     }
 }
